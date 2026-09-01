@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "skills": {
+    "plugins-package-impact": {
+      "source": "/Users/jhe/git/ai-projects/rhdh-security-skills",
+      "sourceType": "local",
+      "computedHash": "e33169c338d0443ed64b3117b75fdfc16998a510c2f836c1e553261f3a029d1a"
+    },
+    "rhdh-cve-medic": {
+      "source": "/Users/jhe/git/ai-projects/rhdh-security-skills",
+      "sourceType": "local",
+      "computedHash": "1d3d50f8a32c18570037ab92c35798eaea652d7e768eee88260c196c56160c26"
+    }
+  }
+}

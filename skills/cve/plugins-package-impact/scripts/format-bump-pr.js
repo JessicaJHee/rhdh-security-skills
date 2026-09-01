@@ -120,7 +120,7 @@ function versionsCell(versions) {
 }
 
 function prTitle(workspace) {
-  return `fix(${workspace}): bump yarn.lock packages for Dependabot CVEs`;
+  return `fix(${workspace}): CVE patch bump`;
 }
 
 function remainingForRow(row, semver) {
@@ -265,7 +265,7 @@ async function main() {
   console.log('## Summary');
   console.log('');
   console.log(
-    `- \`yarn up -R\` on \`workspaces/${workspace}\` for open Dependabot alert packages, then \`yarn install\` and \`yarn dedupe\`.`,
+    `- \`yarn up -R\` on \`workspaces/${workspace}\`, then \`yarn install\` and \`yarn dedupe\`.`,
   );
   const pairAdded = Array.isArray(output.reactRouterPairAdded)
     ? output.reactRouterPairAdded

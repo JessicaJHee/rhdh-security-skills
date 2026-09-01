@@ -21,8 +21,9 @@ That copies each skill into `.agents/skills/<skill-id>/` (or `~/.agents/skills/`
 | Group | Skill | Location |
 | --- | --- | --- |
 | `cve` | `plugins-package-impact` | `skills/cve/plugins-package-impact/` |
+| `cve` | `rhdh-cve-medic` | `skills/cve/rhdh-cve-medic/` |
 
-Invoke by name (`/plugins-package-impact`), never by a sibling category path.
+Invoke by name (`/plugins-package-impact`, `/rhdh-cve-medic`), never by a sibling category path.
 
 ## Layout
 
@@ -32,7 +33,8 @@ Invoke by name (`/plugins-package-impact`), never by a sibling category path.
 ├── README.md
 └── skills/                  # catalog (one SKILL.md per skill)
     └── cve/
-        └── plugins-package-impact/
+        ├── plugins-package-impact/
+        └── rhdh-cve-medic/
 ```
 
 A skill is a directory that contains `SKILL.md`:
