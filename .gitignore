@@ -1,0 +1,20 @@
+.DS_Store
+*.swp
+*~
+
+.idea/
+.vscode/
+*.code-workspace
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+.env
+.env.*
+!.env.example
+
+# Installed copies. Source of truth is skills/<group>/<skill-id>/.
+.agents/
+.cursor/skills/
