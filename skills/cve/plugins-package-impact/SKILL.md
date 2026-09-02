@@ -243,10 +243,14 @@ Defaults to detected remote repo (`--repo`, then `GITHUB_REPOSITORY`, then `orig
 
 ### 5. Prepare bump branch (`prepare-workspace-bump.js`)
 
-Before bumping, reset a clean branch from `upstream/main` (or another base):
+Before bumping interactively, reset a clean branch from `upstream/main`.
+Under Fullsend, skip the reset — the runner already cloned and set up the
+branch. Use `--verify-only` (or rely on auto-detect when `FULLSEND_OUTPUT_DIR`
+is set) to check the lockfile only.
 
 ```bash
 node "$SKILL_DIR/scripts/prepare-workspace-bump.js" --repo-root /path/to/plugins-repo <workspace>
+node "$SKILL_DIR/scripts/prepare-workspace-bump.js" --repo-root /path/to/plugins-repo <workspace> --verify-only
 node "$SKILL_DIR/scripts/prepare-workspace-bump.js" --repo-root /path/to/plugins-repo <workspace> --dry-run
 node "$SKILL_DIR/scripts/prepare-workspace-bump.js" --repo-root /path/to/plugins-repo <workspace> --json
 ```
@@ -257,14 +261,18 @@ node "$SKILL_DIR/scripts/prepare-workspace-bump.js" --repo-root /path/to/plugins
 | `--upstream <remote>` | `upstream` | Remote that tracks `redhat-developer/rhdh-plugins` |
 | `--base <branch>` | `main` | Branch to `git fetch` / reset onto |
 | `--branch <name>` | `chore/<workspace>-cve-bumps` | Local branch created with `checkout -B` |
+| `--verify-only` | auto on Fullsend | Verify lockfile + report HEAD; no `git fetch` / `checkout` |
+| `--reset-branch` | off | Force interactive reset even when `FULLSEND_OUTPUT_DIR` is set |
 | `--dry-run` | off | Print plan only; no `git fetch` / `checkout` |
 | `--json` | off | Machine-readable result on stdout |
 
 Behavior:
 
 1. Verifies `workspaces/<workspace>/yarn.lock` exists.
-2. `git fetch <upstream> <base>`.
-3. `git checkout -B chore/<workspace>-cve-bumps <upstream>/<base>`.
+2. **Interactive (default):** `git fetch <upstream> <base>`, then
+   `git checkout -B chore/<workspace>-cve-bumps <upstream>/<base>`.
+3. **Fullsend / `--verify-only`:** report current branch/HEAD only. Do not
+   fetch or checkout — that fights Fullsend’s clone/branch protocol.
 4. Prints suggested next commands (`list-dependabot-packages.js`, then
    `bump-workspace-packages.js --json | format-bump-pr.js`).
 
@@ -407,8 +415,10 @@ After bumping, re-run `check-dependabot-patch-status.js` to confirm patch level 
 Task progress:
 - [ ] Resolve workspace name (and --repo-root for classify / patch-status / bump)
 - [ ] Ensure GITHUB_TOKEN / GH_TOKEN via .env or env — NOT gh, --token, or git credential
-- [ ] If bumping: `prepare-workspace-bump.js <workspace>` (fetch upstream/main,
-      checkout -B chore/<workspace>-cve-bumps). Use `--dry-run` to preview.
+- [ ] If bumping interactively: `prepare-workspace-bump.js <workspace>`
+      (fetch upstream/main, checkout -B chore/<workspace>-cve-bumps).
+      On Fullsend: `prepare-workspace-bump.js --verify-only` (or omit reset;
+      auto-selected when FULLSEND_OUTPUT_DIR is set). Use `--dry-run` to preview.
 - [ ] Run list-dependabot-packages.js <workspace> [--json] → package list (REST)
 - [ ] Prefer check-dependabot-patch-status.js <workspace> (markdown table default)
       OR classify-cve-source.js <workspace> pkg… (table for multiple packages)
