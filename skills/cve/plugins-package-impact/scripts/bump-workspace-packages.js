@@ -67,8 +67,9 @@ If [package] is omitted, bumps every package with open Dependabot alerts
 under workspaces/<workspace>/, except @backstage/* and @backstage-community/*
 (denylist; never yarn up those).
 
-After yarn up -R, leftover allowlisted packages (currently qs) that still
-resolve more than one version are ancestor-bumped automatically. Other
+After yarn up -R, leftover allowlisted packages (see ancestor-allowlist.js)
+that still have a CVE-vulnerable resolved version are ancestor-bumped
+automatically — including a single parent-held unpatched pin. Other
 ancestor-chain parent bumps remain opt-in via bump-package-ancestors.js.
 
 When react-router or react-router-dom is bumped, the other is included if
@@ -81,7 +82,7 @@ Options:
   --json               Machine-readable JSON on stdout
   --dry-run            Report only; do not run yarn up, install, or dedupe
   --no-dedupe          Skip yarn dedupe after yarn install
-  --no-ancestors       Skip allowlisted leftover ancestor bumps (qs)
+  --no-ancestors       Skip allowlisted leftover ancestor bumps
   -h, --help           Show this help
 
 Examples:
@@ -364,13 +365,16 @@ async function alignReactRouterPair(
   };
 }
 
-async function runAncestorBump(repoRoot, workspace, packageName) {
+async function runAncestorBump(repoRoot, workspace, packageName, repo) {
   const script = resolvePath(__dirname, 'bump-package-ancestors.js');
-  const { stdout } = await execFile(
-    process.execPath,
-    [script, '--repo-root', repoRoot, workspace, packageName, '--json'],
-    { maxBuffer: 20 * 1024 * 1024 },
-  );
+  const args = [script, '--repo-root', repoRoot];
+  if (repo) {
+    args.push('--repo', repo);
+  }
+  args.push(workspace, packageName, '--json');
+  const { stdout } = await execFile(process.execPath, args, {
+    maxBuffer: 20 * 1024 * 1024,
+  });
   return JSON.parse(stdout);
 }
 
@@ -679,7 +683,12 @@ async function main() {
         lockAfterUp,
         packageName,
       );
-      if (leftoverResolved.length <= 1) {
+      const pkgAlerts = workspaceAlerts
+        .filter(a => a.dependency?.package?.name === packageName)
+        .map(summarizeAlert);
+      // Single patched line is done. Single unpatched pin or extra
+      // still-vulnerable lines are leftovers held by a parent.
+      if (!leftoverVersions(semver, pkgAlerts, leftoverResolved).length) {
         continue;
       }
       try {
@@ -687,6 +696,7 @@ async function main() {
           repoRoot,
           workspace,
           packageName,
+          repoFull,
         );
         lockAfterUp = await readFile(lockPath, 'utf8');
       } catch (error) {

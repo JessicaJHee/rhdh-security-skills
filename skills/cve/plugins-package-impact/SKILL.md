@@ -323,10 +323,12 @@ Behavior:
    `--no-dedupe` skips the dedupe step). This matches rhdh-plugins
    `.fullsend/AGENTS.md`: install then dedupe so the lockfile is clean for CI
    `--immutable`.
-4. If an **allowlisted leftover** (currently `qs`) still resolves more than one
-   version, runs `bump-package-ancestors.js` for that package automatically.
-   Pass `--no-ancestors` to skip. Other leftover packages are **not** a cue to
-   walk parents — those ancestor bumps stay opt-in (see 5c).
+4. If an **allowlisted leftover** (see `ancestor-allowlist.js`) still has a
+   CVE-vulnerable resolved version after `yarn up -R` — a second lockfile line
+   **or** a single parent-held unpatched pin — runs `bump-package-ancestors.js`
+   for that package automatically. A single **patched** line is done; do not
+   walk parents. Pass `--no-ancestors` to skip. Other leftover packages are
+   **not** a cue to walk parents — those ancestor bumps stay opt-in (see 5c).
 5. **react-router pair sync:** if the bump set includes `react-router` or
    `react-router-dom` and the other is in the lockfile, both are bumped. After
    the steps above, if same-major highs still disagree, `react-router-dom` is
@@ -365,11 +367,16 @@ Show the formatted body to the user before `gh pr create` unless they already as
 
 ### 5c. Ancestor-chain bumps
 
-**Allowlisted leftovers** (see `scripts/ancestor-allowlist.js`, currently `qs`)
-are ancestor-bumped automatically by `bump-workspace-packages.js` when `yarn up
--R` still leaves more than one resolved version. `qs` leftovers are the
-`qs@npm:~6.14.0` line held by `express` / `body-parser`; a parent patch/minor
-collapses the lockfile to a single patched `6.15.3`.
+**Allowlisted leftovers** (see `scripts/ancestor-allowlist.js`) are
+ancestor-bumped automatically by `bump-workspace-packages.js` when `yarn up -R`
+leaves a leftover held by a parent: still-vulnerable extra resolved lines, or a
+single unpatched pin. A single patched line is not a leftover. Success is
+**CVE leftover gone** (Dependabot ranges), not a single remaining lockfile
+line — more than one patched version is OK. `qs` leftovers are the
+`qs@npm:~6.14.0` line held by `express` / `body-parser`; bumping `express` to a
+release that depends on `qs ~6.15.1` drops `6.14.2`. Remaining `6.15.3` and
+`6.16.0` is complete. `js-cookie` leftovers are a single `2.2.1` pin held by
+`react-use`; a parent bump moves it to a patched 3.x.
 
 **Do not run `bump-package-ancestors.js` for any other package unless the user
 explicitly asks.** Leftover versions after `yarn up -R` are reported as
@@ -377,7 +384,7 @@ partial/unchanged; they are not a cue to walk parents.
 
 When the user asks (or the allowlist runs), `bump-package-ancestors.js` walks
 parents from `yarn why -R` and reverts lockfile collateral when parent bumps do
-not complete the target update. Successful ancestor bumps also run
+not clear the CVE leftover. Successful ancestor bumps also run
 `yarn install` then `yarn dedupe`.
 
 ```bash
@@ -410,8 +417,9 @@ Task progress:
 - [ ] If packages need bumping: `bump-workspace-packages.js <workspace> [package…]` for
       bare `yarn up -R` + `yarn install` + `yarn dedupe` + CVE summary table.
       Known no-major-bump packages (`http-proxy-middleware`) are re-pinned if
-      they jump majors. Allowlisted leftovers (`qs`) are ancestor-bumped
-      automatically. `react-router` / `react-router-dom` are co-bumped and
+      they jump majors. Allowlisted leftovers (see `ancestor-allowlist.js`) are
+      ancestor-bumped automatically when a CVE-vulnerable resolved version
+      remains. `react-router` / `react-router-dom` are co-bumped and
       aligned to the same patch when either is in the bump set.
       Do **not** run `bump-package-ancestors.js` for other packages unless the
       user explicitly asks.
@@ -437,7 +445,7 @@ Task progress:
 | Aggregate exactly `WORKSPACE_DEV` / verdict `WORKSPACE_DEV_ONLY` | Package-level dismiss OK; recommend bump for SBOM hygiene |
 | Verdict `PATCHED_EXCEPT_RUNNER` / `safeToDismissRunnerAlerts` | Dismiss **only** runner `package.json` alerts |
 | Verdict `PROD_PATCHED_DEV_UNPATCHED` | Prod paths patched; unpatched lockfile lines are dev/runner/tooling — prefer SBOM/dev bump or stale lockfile refresh; do not treat as open PLUGIN_PROD work unless `patched_prod=no` |
-| Open `PLUGIN_PROD` alerts remain / unpatched lockfile | Bump with `bump-workspace-packages.js` (auto ancestor-bumps allowlisted leftovers such as `qs`); other ancestor bumps only if the user asks |
+| Open `PLUGIN_PROD` alerts remain / unpatched lockfile | Bump with `bump-workspace-packages.js` (auto ancestor-bumps allowlisted leftovers); other ancestor bumps only if the user asks |
 | Open `PLUGIN_PROD` alerts remain | Fix prod; do not dismiss plugin alerts |
 | Mixed labels (not exact `RUNNER` / `PLUGIN_DEV` / `WORKSPACE_DEV`) | **Do not dismiss** at package level |
 | `UNKNOWN` / `NEEDS_REVIEW` | Dig into `yarn why`; do not dismiss |

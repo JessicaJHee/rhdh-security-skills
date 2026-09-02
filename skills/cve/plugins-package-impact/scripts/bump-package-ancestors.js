@@ -24,6 +24,9 @@ import { promisify } from 'util';
 
 import { isSkippedBumpPackage } from './bump-skip.js';
 import { isNoMajorBumpPackage, pinMajorJumps } from './same-major-yarn-up.js';
+import { leftoverVersions, cveLeftoverCleared } from './cve-version-status.js';
+import { resolveGithubToken } from './github-auth.js';
+import { resolveGithubRepo } from './github-repo.js';
 
 const execFile = promisify(execFileCb);
 const NPM_PKG_RE = /((?:@[^/\s]+\/)?[^\s@[]+)@npm:/;
@@ -33,13 +36,15 @@ function usage() {
 
 Advanced: leftover parent-chain bumps after yarn up -R.
 
-Allowlisted leftovers (qs) are invoked automatically from
-bump-workspace-packages.js. Do not run this script for other packages
-unless the user explicitly asks.
+Allowlisted leftovers (see ancestor-allowlist.js) are invoked automatically
+from bump-workspace-packages.js when yarn up -R leaves a CVE leftover. Do
+not run this script for other packages unless the user explicitly asks.
 
-Walks the ancestor chain from yarn why -R when yarn up -R leaves multiple
-resolved versions. Reverts lockfile collateral when parent bumps do not
-complete the target update. Parent and target yarn up -R calls use bare
+Walks the ancestor chain from yarn why -R when yarn up -R leaves a leftover
+held by a parent (a second resolved line, or a single unpatched pin).
+Success is CVE leftover gone (Dependabot ranges); more than one patched
+resolved line is OK. Reverts lockfile collateral when parent bumps do not
+clear the leftover. Parent and target yarn up -R calls use bare
 package names (Yarn forbids ranges with -R). Known no-major-bump packages
 (currently http-proxy-middleware) are re-pinned if they major-jump.
 
@@ -50,6 +55,7 @@ are out of scope — handle those manually.
 
 Options:
   --repo-root <path>     Local checkout path (default: cwd walk-up / RHDH_PLUGINS_ROOT)
+  --repo <owner/name>    GitHub repo for Dependabot leftover ranges (default: auto-detect)
   --max-parents <number> Max parent packages to try per depth tier (default: 8)
   --max-depth <number>   Max ancestor depth from target (default: 2)
   --fast                 Shorthand for --max-depth 1 --max-parents 4
@@ -67,6 +73,7 @@ function parseArgs(argv) {
   const flags = new Set();
   const options = {
     repoRoot: undefined,
+    repo: undefined,
     maxParents: 8,
     maxDepth: 2,
   };
@@ -86,6 +93,11 @@ function parseArgs(argv) {
       options.repoRoot = argv[++i];
       if (!options.repoRoot) {
         throw new Error('--repo-root requires a path');
+      }
+    } else if (arg === '--repo') {
+      options.repo = argv[++i];
+      if (!options.repo) {
+        throw new Error('--repo requires owner/name');
       }
     } else if (arg === '--max-parents') {
       const raw = argv[++i];
@@ -329,7 +341,101 @@ function versionsEqual(left, right) {
   return true;
 }
 
-function isUpdateComplete(versionsBefore, versionsAfter) {
+function parseNextLink(linkHeader) {
+  if (!linkHeader) {
+    return null;
+  }
+  const match = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+  return match ? match[1] : null;
+}
+
+function summarizeAlert(alert) {
+  const vuln = alert.security_vulnerability ?? {};
+  return {
+    vulnerableRange: vuln.vulnerable_version_range ?? null,
+    firstPatched: vuln.first_patched_version?.identifier ?? null,
+    ghsa: alert.security_advisory?.ghsa_id ?? null,
+    cve: alert.security_advisory?.cve_id ?? null,
+  };
+}
+
+async function fetchOpenAlerts({ token, owner, repo }) {
+  const alerts = [];
+  const params = new URLSearchParams({ state: 'open', per_page: '100' });
+  let nextUrl = `https://api.github.com/repos/${owner}/${repo}/dependabot/alerts?${params}`;
+
+  while (nextUrl) {
+    const response = await fetch(nextUrl, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${token}`,
+        'X-GitHub-Api-Version': '2022-11-28',
+        'User-Agent': 'plugins-package-impact',
+      },
+    });
+    const text = await response.text();
+    let data;
+    try {
+      data = text ? JSON.parse(text) : [];
+    } catch {
+      data = { message: text };
+    }
+    if (!response.ok) {
+      throw new Error(
+        `GitHub API error for ${owner}/${repo} (HTTP ${response.status}): ${data?.message || response.statusText}`,
+      );
+    }
+    if (!Array.isArray(data) || data.length === 0) {
+      break;
+    }
+    alerts.push(...data);
+    nextUrl = parseNextLink(response.headers.get('link'));
+  }
+
+  return alerts;
+}
+
+async function loadPackageAlerts({ repoRoot, workspace, packageName, explicitRepo }) {
+  try {
+    const resolvedRepo = await resolveGithubRepo({
+      explicitRepo,
+      cwd: repoRoot,
+      requiredFor: 'Dependabot leftover ranges',
+    });
+    const [owner, repo] = resolvedRepo.split('/');
+    const token = resolveGithubToken({ requiredFor: 'Dependabot leftover ranges' });
+    const prefix = `workspaces/${workspace}/`;
+    const all = await fetchOpenAlerts({ token, owner, repo });
+    return all
+      .filter(a => {
+        const manifest = a.dependency?.manifest_path || '';
+        const name = a.dependency?.package?.name;
+        if (name !== packageName) {
+          return false;
+        }
+        return manifest === 'yarn.lock'
+          ? workspace === 'root'
+          : manifest.startsWith(prefix);
+      })
+      .map(summarizeAlert);
+  } catch {
+    return [];
+  }
+}
+
+function isUpdateComplete(versionsBefore, versionsAfter, semver, alerts) {
+  const cleared = cveLeftoverCleared(
+    semver,
+    alerts,
+    versionsBefore,
+    versionsAfter,
+  );
+  if (cleared === true) {
+    return true;
+  }
+  if (cleared === false) {
+    return false;
+  }
   if (versionsEqual(versionsBefore, versionsAfter)) {
     return false;
   }
@@ -428,6 +534,12 @@ async function main() {
   }
 
   const semver = loadSemver(repoRoot);
+  const alerts = await loadPackageAlerts({
+    repoRoot,
+    workspace,
+    packageName,
+    explicitRepo: options.repo,
+  });
   const beforeWhy = await runYarnWhy(repoRoot, workspaceDir, packageName);
   const versionsBefore = extractResolvedVersions(beforeWhy, packageName);
 
@@ -440,7 +552,7 @@ async function main() {
   let versionsCurrent = [...versionsBefore];
 
   const isComplete = versions =>
-    isUpdateComplete(versionsBefore, versions);
+    isUpdateComplete(versionsBefore, versions, semver, alerts);
 
   if (!dryRun) {
     await updatePackage(repoRoot, workspaceDir, packageName, semver);
@@ -576,6 +688,7 @@ async function main() {
     fast,
     versionsBefore,
     versionsAfter: versionsCurrent,
+    leftoverAfter: leftoverVersions(semver, alerts, versionsCurrent),
     complete: isComplete(versionsCurrent),
     reverted,
     blockedReason,
