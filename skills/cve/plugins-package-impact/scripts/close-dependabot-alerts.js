@@ -66,6 +66,9 @@ Options:
   --json                         Print machine-readable JSON
   -h, --help                     Show this help
 
+Prohibited under Fullsend: exits non-zero when FULLSEND_OUTPUT_DIR is set
+(list or dismiss). Fullsend agents must not call this script.
+
 Examples:
   GITHUB_TOKEN=ghp_... node close-dependabot-alerts.js \\
     workspaces/quickstart/yarn.lock lodash
@@ -379,6 +382,18 @@ function printAlerts(alerts) {
   }
 }
 
+function assertNotFullsend() {
+  if (!process.env.FULLSEND_OUTPUT_DIR) {
+    return;
+  }
+  throw new Error(
+    'close-dependabot-alerts.js is prohibited under Fullsend ' +
+      '(FULLSEND_OUTPUT_DIR is set). Scheduled/Fullsend runs must not list or ' +
+      'dismiss Dependabot alerts with this script. Classify and bump only; ' +
+      'leave dismiss to a human outside Fullsend.',
+  );
+}
+
 async function main() {
   const { flags, options, positional } = parseArgs(process.argv.slice(2));
 
@@ -386,6 +401,8 @@ async function main() {
     usage();
     process.exit(0);
   }
+
+  assertNotFullsend();
 
   if (positional.length !== 2) {
     usage();

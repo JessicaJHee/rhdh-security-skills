@@ -99,6 +99,7 @@ Use `check-dependabot-patch-status.js` to compare yarn.lock resolved versions to
 1. **Never dismiss** `PLUGIN_PROD` or `UNKNOWN` at package level. Mixed labels that include `PLUGIN_PROD` (or that are not exactly `RUNNER` / `PLUGIN_DEV` / `WORKSPACE_DEV`) are not package-level dismissable.
 2. **Do not dismiss** unless the user explicitly asks to close alerts. Classify and recommend first.
 3. **Interactive confirmation is required.** Run `--close` **without** `--yes` so the script prompts `[y/N]`. Do **not** pass `--yes` unless the user explicitly requests non-interactive dismissal.
+4. **Fullsend: never call `close-dependabot-alerts.js`.** When `FULLSEND_OUTPUT_DIR` is set the script exits non-zero for any invocation (list or dismiss). Classify and bump only; dismiss stays human/out-of-band.
 
 Default reason: `not_used`. Comment should cite classification, e.g. `runner-only in <workspace>; classification=RUNNER`, or `plugin-dev-only / workspace-dev-only in <workspace>; classification=…; not a prod vuln — prefer bump for SBOM hygiene`.
 
@@ -209,6 +210,10 @@ For each package with open alerts, reports:
 Use this when the user asks whether alerts can be dismissed because the package is patched everywhere except runners.
 
 ### 4. List / dismiss Dependabot alerts — only after classify / patch-status
+
+**Fullsend:** do not run this script. When `FULLSEND_OUTPUT_DIR` is set it
+exits non-zero for any invocation (list or dismiss). Report dismiss candidates
+in the run summary only.
 
 Dry run:
 
@@ -442,8 +447,11 @@ Task progress:
       `gh pr create`.
       Title: `fix(<workspace>): bump yarn.lock packages for Dependabot CVEs`.
       No Test plan, no skipped-packages section.
-- [ ] If user asks to dismiss: dry-run close script, then --close without --yes
-  (runner package.json only for PATCHED_EXCEPT_RUNNER; note SBOM bump for PLUGIN_DEV / WORKSPACE_DEV)
+- [ ] If user asks to dismiss (interactive Cursor only — never under Fullsend):
+  dry-run close script, then --close without --yes (runner package.json only
+  for PATCHED_EXCEPT_RUNNER; note SBOM bump for PLUGIN_DEV / WORKSPACE_DEV).
+  Under Fullsend (`FULLSEND_OUTPUT_DIR` set): do not call
+  `close-dependabot-alerts.js`; report dismiss candidates only.
 ```
 
 ### Decision
